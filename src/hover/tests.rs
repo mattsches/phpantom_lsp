@@ -53,6 +53,7 @@ fn format_params_with_types() {
         ParameterInfo {
             name: "$name".to_string(),
             type_hint: Some("string".to_string()),
+            type_hint_parsed: None,
             native_type_hint: Some("string".to_string()),
             description: None,
             default_value: None,
@@ -64,6 +65,7 @@ fn format_params_with_types() {
         ParameterInfo {
             name: "$age".to_string(),
             type_hint: Some("int".to_string()),
+            type_hint_parsed: None,
             native_type_hint: Some("int".to_string()),
             description: None,
             default_value: None,
@@ -84,6 +86,7 @@ fn format_params_variadic() {
     let params = vec![ParameterInfo {
         name: "$items".to_string(),
         type_hint: Some("string".to_string()),
+        type_hint_parsed: None,
         native_type_hint: Some("string".to_string()),
         description: None,
         default_value: None,
@@ -100,6 +103,7 @@ fn format_params_reference() {
     let params = vec![ParameterInfo {
         name: "$arr".to_string(),
         type_hint: Some("array".to_string()),
+        type_hint_parsed: None,
         native_type_hint: Some("array".to_string()),
         description: None,
         default_value: None,

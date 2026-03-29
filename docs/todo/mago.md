@@ -252,67 +252,92 @@ field (`ParameterInfo::type_hint`, `MethodInfo::return_type`,
 is affected. The phased approach below is designed to make this
 manageable.
 
-### Phase 1: Introduce the type representation
+### Phase 1: Introduce the type representation ✅
 
 **Goal:** Define `PhpType`, implement `PhpType::parse()` and
 `PhpType::to_string()`, and prove they round-trip correctly against
 the existing string pipeline. No existing code changes.
 
-1. Add `mago-type-syntax` to `Cargo.toml`.
+**Status:** Complete. Implemented in `src/php_type.rs` (964 lines,
+33 tests). All CI checks pass.
 
-2. Create `src/types/php_type.rs`:
-   ```
-   pub enum PhpType {
-       Named(String),                  // e.g. "int", "App\\User"
-       Nullable(Box<PhpType>),         // ?T
-       Union(Vec<PhpType>),            // T|U
-       Intersection(Vec<PhpType>),     // T&U
-       Generic(String, Vec<PhpType>),  // Collection<int, User>
-       Array(Box<PhpType>),            // T[]
-       ArrayShape(Vec<ShapeEntry>),    // array{name: string, age: int}
-       ObjectShape(Vec<ShapeEntry>),   // object{name: string}
-       Callable {                      // callable(T): U
-           params: Vec<PhpType>,
-           return_type: Option<Box<PhpType>>,
-       },
-       Conditional {                   // ($x is T ? U : V)
-           param: String,
-           condition: Box<PhpType>,
-           then_type: Box<PhpType>,
-           else_type: Box<PhpType>,
-       },
-       ClassString(Option<Box<PhpType>>),  // class-string<T>
-       KeyOf(Box<PhpType>),            // key-of<T>
-       ValueOf(Box<PhpType>),          // value-of<T>
-       Raw(String),                    // fallback for unparseable strings
-   }
-   ```
+**Implementation notes:**
 
-3. Implement `PhpType::parse(s: &str) -> PhpType` using
-   `mago_type_syntax::parse_str()` to parse into the crate's AST,
-   then convert to our `PhpType`. The `Raw(String)` variant is the
-   fallback for anything the parser rejects — this guarantees the
-   function never fails.
+- File is `src/php_type.rs` (not `src/types/php_type.rs` as
+  originally planned — avoids restructuring `types.rs` into a
+  directory module).
+- Module registered as `pub mod php_type` in `lib.rs`.
+- `mago-type-syntax = "1.14"` added to `Cargo.toml`.
+- The enum has 17 variants (Named, Nullable, Union, Intersection,
+  Generic, Array, ArrayShape, ObjectShape, Callable, Conditional,
+  ClassString, InterfaceString, KeyOf, ValueOf, IntRange,
+  IndexAccess, Literal, Raw) plus helper structs `ShapeEntry` and
+  `CallableParam`.
+- Callable variant stores `kind: String` to distinguish callable,
+  Closure, pure-callable, pure-Closure.
+- Conditional variant stores `negated: bool` for `is not` syntax.
+- Union/Intersection trees from mago's binary AST are flattened
+  into `Vec<PhpType>`.
+- All 34 mago keyword types map to `Named("keyword")`.
+- Unhandled mago variants (int-mask, int-mask-of, properties-of,
+  alias-reference, member-reference, negated, posited) fall back
+  to `Raw(ty.to_string())`.
+- Display works around mago Display bugs for class-string, key-of,
+  value-of (double angle brackets in mago's output).
+- 33 tests: 14 round-trip, 2 error-handling, 15 structural
+  verification (flattening, field values, etc.).
 
-4. Implement `PhpType::to_string() -> String` so we can convert back
-   to the string representation for display (hover, completion
-   detail, etc.).
+Original plan steps (all done):
 
-5. Write round-trip tests: for every type string in the existing test
-   suite, assert `PhpType::parse(s).to_string() == s` (or a
-   canonically equivalent form).
+1. ✅ Add `mago-type-syntax` to `Cargo.toml`.
+2. ✅ Create `src/php_type.rs` with `PhpType` enum.
+3. ✅ Implement `PhpType::parse(s: &str) -> PhpType`.
+4. ✅ Implement `Display for PhpType`.
+5. ✅ Write round-trip tests.
 
-### Phase 2: Dual representation on core types
+### Phase 2: Dual representation on core types ✅
 
 **Goal:** Add `_parsed: Option<PhpType>` fields alongside existing
 string fields on the core types. Populate them at extraction time.
 No consumers change yet.
 
-1. Add `return_type_parsed: Option<PhpType>` to `MethodInfo`.
-2. Add `type_hint_parsed: Option<PhpType>` to `ParameterInfo`.
-3. Add `type_hint_parsed: Option<PhpType>` to `PropertyInfo`.
-4. Add `type_hint_parsed: Option<PhpType>` to `ConstantInfo`.
-5. Populate these fields in `src/parser/classes.rs` and
+**Status:** Complete. All four core types carry a parsed field
+populated via `PhpType::parse()` at every construction site. All CI
+checks pass (cargo test, clippy, clippy --tests, fmt, php -l).
+
+**Implementation notes:**
+
+- `MethodInfo::return_type_parsed: Option<PhpType>` populated in
+  `src/parser/classes.rs` (`extract_class_like_members`),
+  `src/docblock/virtual_members.rs` (`extract_method_tags`), and
+  `MethodInfo::virtual_method`.
+- `ParameterInfo::type_hint_parsed: Option<PhpType>` populated in
+  `src/parser/mod.rs` (`extract_parameters`),
+  `src/parser/classes.rs` (extra `@param` tags),
+  `src/parser/functions.rs` (extra `@param` tags), and
+  `src/docblock/virtual_members.rs` (`extract_method_tag_params`).
+- `PropertyInfo::type_hint_parsed: Option<PhpType>` populated in
+  `src/parser/mod.rs` (`extract_property_info`),
+  `src/parser/classes.rs` (promoted constructor properties),
+  `src/completion/types/resolution.rs` (array-shape entries),
+  `src/virtual_members/phpdoc.rs` (`@property` tags), and
+  `PropertyInfo::virtual_property`.
+- `ConstantInfo::type_hint_parsed: Option<PhpType>` populated in
+  `src/parser/classes.rs` (class constants and enum cases).
+- Test construction sites use `None` for the parsed field since
+  they don't exercise type-structural consumers yet.
+- The `_parsed` field is placed after the corresponding string
+  field in struct definitions and before it in struct literals
+  (to avoid borrow-after-move when the string field uses
+  shorthand initialization).
+
+Original plan steps (all done):
+
+1. ✅ Add `return_type_parsed: Option<PhpType>` to `MethodInfo`.
+2. ✅ Add `type_hint_parsed: Option<PhpType>` to `ParameterInfo`.
+3. ✅ Add `type_hint_parsed: Option<PhpType>` to `PropertyInfo`.
+4. ✅ Add `type_hint_parsed: Option<PhpType>` to `ConstantInfo`.
+5. ✅ Populate these fields in `src/parser/classes.rs` and
    `src/parser/functions.rs` by calling `PhpType::parse()` on the
    existing string value.
 

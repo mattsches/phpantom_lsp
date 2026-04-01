@@ -860,7 +860,33 @@ impl Backend {
             mr_ctx.cache,
         );
         if let Some(method) = merged.methods.iter().find(|m| m.name == method_name) {
-            return resolve_method(method);
+            let result = resolve_method(method);
+            if !result.is_empty() {
+                return result;
+            }
+            // The method exists (possibly from a `@method` tag) but has
+            // no usable return type.  Fall through to the `__call`
+            // fallback so it can inherit `__call`'s return type.
+        }
+
+        // ── __call fallback ─────────────────────────────────────
+        // Either the method was not found at all, or it was found
+        // (e.g. via a `@method` tag) but had no return type.  If the
+        // class defines `__call`, use its return type as the fallback.
+        // When `__call` returns `$this`/`static`/`self`, this
+        // preserves the chain type (e.g. Builder<User> stays
+        // Builder<User> through dynamic `where{Column}` calls).
+        // When `__call` returns `mixed`, no classes resolve and the
+        // caller gets an empty vec — the same as before this fallback.
+        if let Some(magic) = merged
+            .methods
+            .iter()
+            .find(|m| m.name.eq_ignore_ascii_case("__call"))
+        {
+            let result = resolve_method(magic);
+            if !result.is_empty() {
+                return result;
+            }
         }
 
         vec![]

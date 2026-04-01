@@ -878,6 +878,18 @@ fn resolve_call_raw_return_type(
                 {
                     return Some(ret.to_string());
                 }
+                // __call fallback: when the method is not found but the
+                // class defines __call, use its return type so that
+                // chains through dynamic calls (e.g. Builder where{Column})
+                // preserve the type.
+                if let Some(m) = merged
+                    .methods
+                    .iter()
+                    .find(|m| m.name.eq_ignore_ascii_case("__call"))
+                    && let Some(ref ret) = m.return_type
+                {
+                    return Some(ret.to_string());
+                }
             }
             None
         }
